@@ -52,6 +52,7 @@ namespace {
     }
 }
 
+// Реализация нашего состояния с дополненным понятием терминального состояния
 class JC_State : public Basis_State {
     public:
         JC_State(size_t g_count): Basis_State(QUDITS_COUNT), g_map_(g_count + 1) {
@@ -61,6 +62,7 @@ class JC_State : public Basis_State {
             this->set_max_val(1000, 0);
         }
 
+        // Сделать шаг по i-тому g 
         JC_State JC_Step(int i) const {
             JC_State res(*this);
             int target = g_map_[this->get_qudit(0)][i].first;
@@ -72,6 +74,7 @@ class JC_State : public Basis_State {
             return res;
         }
 
+        // Перевести текущее состояние в терминальное (если возможно)
         JC_State Terminal_Step() const {
             JC_State res(*this);
 
@@ -84,25 +87,10 @@ class JC_State : public Basis_State {
             return res;
         }
 
-        JC_State Terminal_Reverse_Step() const {
-            JC_State res(*this);
-
-            res.set_qudit(f_[this->get_qudit(0) - g_map_.size()], 0);
-            res.ph_ = 1;
-
-            return res;
-        }
-
-        JC_State Terminal_Finalize() const {
-            JC_State res(*this);
-
-            res.set_qudit(this->get_qudit(0) + f_.size(), 0);
-
-            return res;
-        }
-
+        // Указать состояния, переходящие в терминальные
         void set_f(const std::vector<int>& f) { f_ = f;}
 
+        // Есть ли переход в терминальное состояние
         bool is_f() const {
             bool res = false;
             int i = -1;
@@ -113,17 +101,17 @@ class JC_State : public Basis_State {
             return false;
         }
 
-        bool is_f_t() const {
-            return (this->get_qudit(0) >= g_map_.size() and this->get_qudit(0) < g_map_.size() + f_.size());
-        }
-
+        // Является ли состояние терминальным
         bool is_terminal() const {
-            return (this->get_qudit(0) >= g_map_.size() + f_.size());
+            return (this->get_qudit(0) >= g_map_.size());
         }
 
+        // Получить фотон
         int get_photon() const { return ph_; }
+        // Получить значение matter
         int get_matter() const { return this->get_qudit(1); }
 
+        // Установить g
         void set_g(int i, int j, COMPLEX g) {
             for (auto& p: g_map_[i]) {
                 if (p.first == j) {
@@ -143,20 +131,17 @@ class JC_State : public Basis_State {
             g_map_[j].emplace_back(std::make_pair(i, g));
         }
 
+        // Число возможных переходов
         size_t get_neighbours_count() const { return (this->get_qudit(0) < g_map_.size() ? g_map_[this->get_qudit(0)].size() : 0); }
+        // Получить g_i
         COMPLEX get_g(int i) const { return g_map_[this->get_qudit(0)][i].second; }
 
-        double get_energy() const {
-            return ph_ + this->get_qudit(1);
-        }
-
+        // Строковое представление состояния
         std::string to_string() const override {
             std::string res = "|";
 
-            if (this->is_f_t()) {
+            if (this->is_terminal()) {
                 res += "f";
-            } else if (this->is_terminal()) {
-                res += "f_u";
             } else {
                 res += std::to_string(ph_);
             }
@@ -168,6 +153,7 @@ class JC_State : public Basis_State {
             return res;
         }
 
+        // Перегрузка сортировки
         bool operator<(const Basis_State& other) const override {
             return this->to_string() < other.to_string();
         }
@@ -178,13 +164,8 @@ class JC_State : public Basis_State {
         int group_ = 0;
 };
 
-//ENERGY
-State<JC_State> energy_state(const JC_State& st) {
-    return State<JC_State>(st) * st.get_energy();
-}
-
-//EMT
-State<JC_State> exc_matter_and_term(const JC_State& st) {
+// Реализация всевозможных переходов
+State<JC_State> exc_relax_matter(const JC_State& st) {
     State<JC_State> res;
     for (size_t i = 0; i < st.get_neighbours_count(); i++) {
         res += State<JC_State>(st.JC_Step(i)) * st.get_g(i);
@@ -193,6 +174,7 @@ State<JC_State> exc_matter_and_term(const JC_State& st) {
     return res;
 }
 
+// Переход в терминальное состояние
 State<JC_State> term_dec(const JC_State& st) {
     if(st.is_f()) {
          State<JC_State> res(st.Terminal_Step());
@@ -222,7 +204,7 @@ int main(void) {
 
         double dt = find_best_dt({M_PI/0.2, M_PI/0.8, M_PI/(g*2)});
 
-        auto H_op = OpType(exc_matter_and_term);
+        auto H_op = OpType(exc_relax_matter);
         OpType A_dec(term_dec);
 
         auto basis = State_Graph<JC_State>(st, H_op, {A_dec}).get_basis();
@@ -270,7 +252,7 @@ int main(void) {
 
         double dt = find_best_dt({M_PI/(g*2)});
 
-        auto H_op = OpType(exc_matter_and_term);
+        auto H_op = OpType(exc_relax_matter);
         OpType A_dec(term_dec);
 
         auto basis = State_Graph<JC_State>(st, H_op, {A_dec}).get_basis();
@@ -321,7 +303,7 @@ int main(void) {
 
     st.set_g(0, 1, g);
 
-    auto H_op = OpType(exc_matter_and_term);
+    auto H_op = OpType(exc_relax_matter);
 
     auto basis = State_Graph<JC_State>(st, H_op).get_basis();
 
