@@ -192,8 +192,11 @@ int main(void) {
     using namespace QComputations;
     using OpType = Operator<JC_State>;
     
+
+    // ----------------- Модель с 4 виртуальными фотонами ----------------
     JC_State st(4, "|0;1>");
 
+    // Перебор g_3.
     std::vector<double> g_vec = {0.05, 0.08, 0.1, 0.2, 0.4, 0.6, 0.8, 1};
 
     for (auto g: g_vec) {
@@ -204,11 +207,16 @@ int main(void) {
 
         double dt = find_best_dt({M_PI/0.2, M_PI/0.8, M_PI/(g*2)});
 
+        // Объявляем оператор
         auto H_op = OpType(exc_relax_matter);
+
+        // Объявляем оператор декогеренции. (Состояния переходят в терминальные)
         OpType A_dec(term_dec);
 
+        // Находим базис
         auto basis = State_Graph<JC_State>(st, H_op, {A_dec}).get_basis();
 
+        // Генерация самого гамильтониана
         H_by_Operator<JC_State> H(st, H_op, {std::make_pair(1, A_dec)});
 
         show_basis(H.get_basis());
@@ -220,6 +228,7 @@ int main(void) {
         Matrix<double> probs(C_STYLE, basis_size, STEPS_COUNT + 1);
         probs[0][0] = 1;
 
+        // Объявляем состояние в базисе basis с начальным состоянием st
         State<JC_State> state(st, basis);
 
         for (size_t i = 0; i < basis_size; i++) {
@@ -227,8 +236,13 @@ int main(void) {
         }
         
         for (size_t step = 1; step <= STEPS_COUNT; step++) {
+            // Шаг моделирования уравнения Шрёдингера
             state = schrodinger_step(state, H, dt, basis);
+
+            // Прогон оператора декогеренции. (Переход в терминальные состояния)
             state = A_dec.run(state);
+
+            // Нормировка
             state.normalize();
 
 
@@ -237,11 +251,19 @@ int main(void) {
             }
         }
 
+
+        // Вектор времени
         auto time_vec = linspace(0, STEPS_COUNT, STEPS_COUNT + 1);
 
+        // Запись результатов
         make_probs_files(H, probs, time_vec, H.get_basis(), "res/3 фотона. Вероятности. g=" + to_string_double_with_precision(g, 2, 4));
     }
 
+
+    // ------------------ Дальше всё аналогично выше --------------
+
+
+    // ------------------ Вместо 4 g - 1 --------------------
     st = JC_State(1, "|0;1>");
 
     g_vec = {0.05, 0.1, 0.2, 0.4, 0.8, 1};
@@ -296,6 +318,8 @@ int main(void) {
         make_probs_files(H, phases, time_vec, H.get_basis(), "res/1 фотон. Фазы. g=" + to_string_double_with_precision(g, 2, 4));
     }
 
+
+    // -------------- Обыкновенные осцилляции Джейнса Каммингса ----------
     st = JC_State(1, "|0;1>");
 
     double g = 0.1;
