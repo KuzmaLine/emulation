@@ -2,10 +2,11 @@
 
 namespace QComputations {
 
+
 namespace {
     constexpr int QUDITS_COUNT = 2;
 
-    constexpr int STEPS_COUNT = 100;
+    int STEPS_COUNT = 1000;
 
     // Во сколько раз dt должен быть меньше минимального полупериода
     constexpr int DT_DECREASE = 10;
@@ -88,7 +89,9 @@ class JC_State : public Basis_State {
         }
 
         // Указать состояния, переходящие в терминальные
-        void set_f(const std::vector<int>& f) { f_ = f;}
+        void set_f(const std::vector<int>& f) { 
+            f_ = f;
+        }
 
         // Есть ли переход в терминальное состояние
         bool is_f() const {
@@ -105,6 +108,9 @@ class JC_State : public Basis_State {
         bool is_terminal() const {
             return (this->get_qudit(0) >= g_map_.size());
         }
+
+        void set_energy(const std::vector<double>& energy) {state_energy_ = energy;}
+        double get_energy() const { return state_energy_[this->get_qudit(0)]; }
 
         // Получить фотон
         int get_photon() const { return ph_; }
@@ -146,6 +152,8 @@ class JC_State : public Basis_State {
                 res += std::to_string(ph_);
             }
 
+            //res += std::to_string(this->get_qudit(0));
+
             add_lower(res, group_);
 
             res += ";" + std::to_string(this->get_matter()) + ">";
@@ -162,6 +170,8 @@ class JC_State : public Basis_State {
         std::vector<int> f_;
         int ph_ = 0;
         int group_ = 0;
+        std::vector<double> state_energy_;
+        double sum_energy = QConfig::instance().h() * QConfig::instance().w();
 };
 
 // Реализация всевозможных переходов
@@ -171,13 +181,16 @@ State<JC_State> exc_relax_matter(const JC_State& st) {
         res += State<JC_State>(st.JC_Step(i)) * st.get_g(i);
     }
 
+    res += State<JC_State>(st) * st.get_energy();
+
     return res;
 }
 
 // Переход в терминальное состояние
 State<JC_State> term_dec(const JC_State& st) {
     if(st.is_f()) {
-         State<JC_State> res(st.Terminal_Step());
+        auto f = st.Terminal_Step();
+         State<JC_State> res(f);
          res.insert(st, 0);
 
          return res;
@@ -190,22 +203,32 @@ State<JC_State> term_dec(const JC_State& st) {
 
 int main(void) {
     using namespace QComputations;
-    using OpType = Operator<JC_State>;
-    
-    JC_State st(4, "|0;1>");
+    using OpType = Operator<JC_State>;  
+    auto sum_energy = QConfig::instance().h() * QConfig::instance().w();
+    auto vacuum_energy = QConfig::instance().h() * QConfig::instance().w() / 4;
+
+    auto H_op = OpType(exc_relax_matter);
+    OpType A_dec(term_dec);
+
 
     std::vector<double> g_vec = {0.05, 0.08, 0.1, 0.2, 0.4, 0.6, 0.8, 1};
 
     for (auto g: g_vec) {
+        JC_State st(3, "|0;1>");
         st.set_g(0, 1, 0.1);
         st.set_g(0, 2, 0.4);
         st.set_g(0, 3, g);
         st.set_f({1, 2, 3});
 
-        double dt = find_best_dt({M_PI/0.2, M_PI/0.8, M_PI/(g*2)});
+        st.set_energy({sum_energy + vacuum_energy,
+                       sum_energy / 3 + vacuum_energy,
+                       sum_energy / 2 + vacuum_energy / 2,
+                       sum_energy / 4 + vacuum_energy / 3,
+                       sum_energy * 2 / 3 + vacuum_energy,
+                       sum_energy / 2 + vacuum_energy / 2,
+                       sum_energy * 3 / 4 + vacuum_energy / 3});
 
-        auto H_op = OpType(exc_relax_matter);
-        OpType A_dec(term_dec);
+        double dt = find_best_dt({M_PI/0.2, M_PI/0.8, M_PI/(g*2)});
 
         auto basis = State_Graph<JC_State>(st, H_op, {A_dec}).get_basis();
 
@@ -218,8 +241,6 @@ int main(void) {
         auto basis_size = basis.size();
 
         Matrix<double> probs(C_STYLE, basis_size, STEPS_COUNT + 1);
-        probs[0][0] = 1;
-
         State<JC_State> state(st, basis);
 
         for (size_t i = 0; i < basis_size; i++) {
@@ -239,21 +260,24 @@ int main(void) {
 
         auto time_vec = linspace(0, STEPS_COUNT, STEPS_COUNT + 1);
 
-        make_probs_files(H, probs, time_vec, H.get_basis(), "res/3 фотона. Вероятности. g=" + to_string_double_with_precision(g, 2, 4));
+        make_probs_files(H, probs, time_vec, H.get_basis(), "res/3 альтернативы. Вероятности. g" + LOWER_NUMBERS[1] + "=0.1, g" + LOWER_NUMBERS[2] + "=0.4, g" + LOWER_NUMBERS[3] + "=" + to_string_double_with_precision(g, 2, 4));
     }
-
-    st = JC_State(1, "|0;1>");
 
     g_vec = {0.05, 0.1, 0.2, 0.4, 0.8, 1};
 
     for (auto g: g_vec) {
-        st.set_g(0, 1, g);
-        st.set_f({1});
+        JC_State st(2, "|0;1>");
+        st.set_g(0, 1, 0.2);
+        st.set_g(0, 2, g);
+        st.set_f({1, 2});
 
-        double dt = find_best_dt({M_PI/(g*2)});
+        st.set_energy({sum_energy + vacuum_energy,
+                sum_energy / 3 + vacuum_energy,
+                sum_energy / 2 + vacuum_energy / 2,
+                sum_energy * 2 / 3 + vacuum_energy,
+                sum_energy / 2 + vacuum_energy / 2});
 
-        auto H_op = OpType(exc_relax_matter);
-        OpType A_dec(term_dec);
+        double dt = find_best_dt({M_PI/0.4, M_PI/(g*2)});
 
         auto basis = State_Graph<JC_State>(st, H_op, {A_dec}).get_basis();
 
@@ -268,7 +292,6 @@ int main(void) {
         Matrix<double> phases(C_STYLE, basis_size, STEPS_COUNT + 1);
 
         Matrix<double> probs(C_STYLE, basis_size, STEPS_COUNT + 1);
-        probs[0][0] = 1;
 
         State<JC_State> state(st, basis);
 
@@ -291,58 +314,107 @@ int main(void) {
 
         auto time_vec = linspace(0, STEPS_COUNT, STEPS_COUNT + 1);
 
-        make_probs_files(H, probs, time_vec, H.get_basis(), "res/1 фотон. Вероятности. g=" + to_string_double_with_precision(g, 2, 4) + ". dt=" + to_string_double_with_precision(dt, 4, 6));
+        make_probs_files(H, probs, time_vec, H.get_basis(), "res/2 альтернативы. Вероятности. g" + LOWER_NUMBERS[1] + "=0.2, g" + LOWER_NUMBERS[2] + "=" + to_string_double_with_precision(g, 2, 4));
 
-        make_probs_files(H, phases, time_vec, H.get_basis(), "res/1 фотон. Фазы. g=" + to_string_double_with_precision(g, 2, 4));
+        make_probs_files(H, phases, time_vec, H.get_basis(), "res/2 альтернативы. Фазы. g" + LOWER_NUMBERS[1] + "=0.2, g" + LOWER_NUMBERS[2] + "=" + to_string_double_with_precision(g, 2, 4));
     }
 
-    st = JC_State(1, "|0;1>");
+    {
+        JC_State st(2, "|0;1>");
+        st.set_g(0, 1, 0.2);
+        st.set_g(0, 2, 0.5);
+        st.set_f({1, 2});
 
-    double g = 0.1;
-    double dt = M_PI/0.2/DT_DECREASE;
+        st.set_energy({sum_energy + vacuum_energy,
+                sum_energy / 2 + vacuum_energy,
+                sum_energy / 2 + vacuum_energy,
+                sum_energy / 2  + vacuum_energy,
+                sum_energy / 2 + vacuum_energy});
 
-    st.set_g(0, 1, g);
+        double dt = find_best_dt({M_PI/0.4, M_PI});
 
-    auto H_op = OpType(exc_relax_matter);
+        auto basis = State_Graph<JC_State>(st, H_op, {A_dec}).get_basis();
 
-    auto basis = State_Graph<JC_State>(st, H_op).get_basis();
+        H_by_Operator<JC_State> H(st, H_op, {std::make_pair(1, A_dec)});
 
-    H_by_Operator<JC_State> H(st, H_op);
+        show_basis(H.get_basis());
 
-    show_basis(H.get_basis());
+        H.show();
 
-    H.show();
+        auto basis_size = basis.size();
 
-    auto basis_size = basis.size();
+        Matrix<double> probs(C_STYLE, basis_size, STEPS_COUNT + 1);
 
-    Matrix<double> phases(C_STYLE, basis_size, STEPS_COUNT + 1);
-
-    Matrix<double> probs(C_STYLE, basis_size, STEPS_COUNT + 1);
-    probs[0][0] = 1;
-
-    State<JC_State> state(st, basis);
-
-    for (size_t i = 0; i < basis_size; i++) {
-        probs[i][0] = std::abs(state[i] * std::conj(state[i]));
-        phases[i][0] = std::arg(state[i]);
-    }
-    
-    for (size_t step = 1; step <= STEPS_COUNT; step++) {
-        state = schrodinger_step(state, H, dt, basis);
-        state.normalize();
-
+        State<JC_State> state(st, basis);
 
         for (size_t i = 0; i < basis_size; i++) {
-            phases[i][step] = std::arg(state[i]);
-            probs[i][step] = std::abs(state[i] * std::conj(state[i]));
+            probs[i][0] = std::abs(state[i] * std::conj(state[i]));
         }
+        
+        for (size_t step = 1; step <= STEPS_COUNT; step++) {
+            state = schrodinger_step(state, H, dt, basis);
+            state = A_dec.run(state);
+            state.normalize();
+
+
+            for (size_t i = 0; i < basis_size; i++) {
+                probs[i][step] = std::abs(state[i] * std::conj(state[i]));
+            }
+        }
+
+        auto time_vec = linspace(0, STEPS_COUNT, STEPS_COUNT + 1);
+
+        make_probs_files(H, probs, time_vec, H.get_basis(), "res/2 альтернативы. Вероятности. Равные соотношения энергий");
     }
 
-    auto time_vec = linspace(0, STEPS_COUNT, STEPS_COUNT + 1);
+    {
+        JC_State st(1, "|0;1>");
 
-    make_probs_files(H, probs, time_vec, H.get_basis(), "res/Осцилляции Джейнса-Каммингса. Вероятности. g=" + to_string_double_with_precision(g, 2, 4));
+        double g = 0.1;
+        double dt = M_PI/0.2/DT_DECREASE;
 
-    make_probs_files(H, phases, time_vec, H.get_basis(), "res/Осцилляции Джейнса-Каммингса. Фазы. g=" + to_string_double_with_precision(g, 2, 4));
+        st.set_g(0, 1, g);
+        STEPS_COUNT = 100;
+        st.set_energy({1, 1});
+
+        auto basis = State_Graph<JC_State>(st, H_op).get_basis();
+
+        H_by_Operator<JC_State> H(st, H_op);
+
+        show_basis(H.get_basis());
+
+        H.show();
+
+        auto basis_size = basis.size();
+
+        Matrix<double> phases(C_STYLE, basis_size, STEPS_COUNT + 1);
+
+        Matrix<double> probs(C_STYLE, basis_size, STEPS_COUNT + 1);
+
+        State<JC_State> state(st, basis);
+
+        for (size_t i = 0; i < basis_size; i++) {
+            probs[i][0] = std::abs(state[i] * std::conj(state[i]));
+            phases[i][0] = std::arg(state[i]);
+        }
+        
+        for (size_t step = 1; step <= STEPS_COUNT; step++) {
+            state = schrodinger_step(state, H, dt, basis);
+            state.normalize();
+
+
+            for (size_t i = 0; i < basis_size; i++) {
+                phases[i][step] = std::arg(state[i]);
+                probs[i][step] = std::abs(state[i] * std::conj(state[i]));
+            }
+        }
+
+        auto time_vec = linspace(0, STEPS_COUNT, STEPS_COUNT + 1);
+
+        make_probs_files(H, probs, time_vec, H.get_basis(), "res/Осцилляции Джейнса-Каммингса. Вероятности. g=" + to_string_double_with_precision(g, 2, 4));
+
+        make_probs_files(H, phases, time_vec, H.get_basis(), "res/Осцилляции Джейнса-Каммингса. Фазы. g=" + to_string_double_with_precision(g, 2, 4));
+    }
 
     return 0;
 }
