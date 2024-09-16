@@ -210,7 +210,7 @@ int main(void) {
     auto H_op = OpType(exc_relax_matter);
     OpType A_dec(term_dec);
 
-
+    // Перебор g_3.
     std::vector<double> g_vec = {0.05, 0.08, 0.1, 0.2, 0.4, 0.6, 0.8, 1};
 
     for (auto g: g_vec) {
@@ -230,8 +230,11 @@ int main(void) {
 
         double dt = find_best_dt({M_PI/0.2, M_PI/0.8, M_PI/(g*2)});
 
+
+        // Находим базис
         auto basis = State_Graph<JC_State>(st, H_op, {A_dec}).get_basis();
 
+        // Генерация самого гамильтониана
         H_by_Operator<JC_State> H(st, H_op, {std::make_pair(1, A_dec)});
 
         show_basis(H.get_basis());
@@ -241,6 +244,7 @@ int main(void) {
         auto basis_size = basis.size();
 
         Matrix<double> probs(C_STYLE, basis_size, STEPS_COUNT + 1);
+
         State<JC_State> state(st, basis);
 
         for (size_t i = 0; i < basis_size; i++) {
@@ -248,8 +252,13 @@ int main(void) {
         }
         
         for (size_t step = 1; step <= STEPS_COUNT; step++) {
+            // Шаг моделирования уравнения Шрёдингера
             state = schrodinger_step(state, H, dt, basis);
+
+            // Прогон оператора декогеренции. (Переход в терминальные состояния)
             state = A_dec.run(state);
+
+            // Нормировка
             state.normalize();
 
 
@@ -258,10 +267,13 @@ int main(void) {
             }
         }
 
+
+        // Вектор времени
         auto time_vec = linspace(0, STEPS_COUNT, STEPS_COUNT + 1);
 
         make_probs_files(H, probs, time_vec, H.get_basis(), "res/3 альтернативы. Вероятности. g" + LOWER_NUMBERS[1] + "=0.1, g" + LOWER_NUMBERS[2] + "=0.4, g" + LOWER_NUMBERS[3] + "=" + to_string_double_with_precision(g, 2, 4));
     }
+
 
     g_vec = {0.05, 0.1, 0.2, 0.4, 0.8, 1};
 
@@ -324,6 +336,7 @@ int main(void) {
         st.set_g(0, 1, 0.2);
         st.set_g(0, 2, 0.5);
         st.set_f({1, 2});
+
 
         st.set_energy({sum_energy + vacuum_energy,
                 sum_energy / 2 + vacuum_energy,
