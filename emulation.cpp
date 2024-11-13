@@ -2,11 +2,10 @@
 
 namespace QComputations {
 
-
 namespace {
     constexpr int QUDITS_COUNT = 2;
 
-    int STEPS_COUNT = 1000;
+    int STEPS_COUNT = 100;
 
     // Во сколько раз dt должен быть меньше минимального полупериода
     constexpr int DT_DECREASE = 10;
@@ -109,8 +108,10 @@ class JC_State : public Basis_State {
             return (this->get_qudit(0) >= g_map_.size());
         }
 
+        //void set_energy(double energy) { state_energy_ = energy; }
         void set_energy(const std::vector<double>& energy) {state_energy_ = energy;}
         double get_energy() const { return state_energy_[this->get_qudit(0)]; }
+        //double get_energy() const { return state_energy_; }
 
         // Получить фотон
         int get_photon() const { return ph_; }
@@ -171,6 +172,7 @@ class JC_State : public Basis_State {
         int ph_ = 0;
         int group_ = 0;
         std::vector<double> state_energy_;
+        //double state_energy_;
         double sum_energy = QConfig::instance().h() * QConfig::instance().w();
 };
 
@@ -214,19 +216,23 @@ int main(void) {
     std::vector<double> g_vec = {0.05, 0.08, 0.1, 0.2, 0.4, 0.6, 0.8, 1};
 
     for (auto g: g_vec) {
+        STEPS_COUNT = 500;
         JC_State st(3, "|0;1>");
         st.set_g(0, 1, 0.1);
         st.set_g(0, 2, 0.4);
         st.set_g(0, 3, g);
         st.set_f({1, 2, 3});
 
-        st.set_energy({sum_energy + vacuum_energy,
-                       sum_energy / 3 + vacuum_energy,
-                       sum_energy / 2 + vacuum_energy / 2,
-                       sum_energy / 4 + vacuum_energy / 3,
-                       sum_energy * 2 / 3 + vacuum_energy,
-                       sum_energy / 2 + vacuum_energy / 2,
-                       sum_energy * 3 / 4 + vacuum_energy / 3});
+        
+        st.set_energy({sum_energy + vacuum_energy,           // |0_0, 1>
+                       sum_energy + vacuum_energy,       // |1_1, 1>
+                       sum_energy + vacuum_energy,   // |1_2, 1>
+                       sum_energy + vacuum_energy,   // |1_3, 1>
+                       sum_energy + vacuum_energy,       // |F_1, 1>
+                       sum_energy + vacuum_energy,   // |F_2, 1>
+                       sum_energy + vacuum_energy}); // |F_3, 1>
+        
+        //st.set_energy(sum_energy + vacuum_energy);
 
         double dt = find_best_dt({M_PI/0.2, M_PI/0.8, M_PI/(g*2)});
 
@@ -289,6 +295,9 @@ int main(void) {
                 sum_energy * 2 / 3 + vacuum_energy,
                 sum_energy / 2 + vacuum_energy / 2});
 
+        //st.set_energy(sum_energy + vacuum_energy);
+
+
         double dt = find_best_dt({M_PI/0.4, M_PI/(g*2)});
 
         auto basis = State_Graph<JC_State>(st, H_op, {A_dec}).get_basis();
@@ -338,12 +347,14 @@ int main(void) {
         st.set_f({1, 2});
 
 
+        
         st.set_energy({sum_energy + vacuum_energy,
                 sum_energy / 2 + vacuum_energy,
                 sum_energy / 2 + vacuum_energy,
                 sum_energy / 2  + vacuum_energy,
                 sum_energy / 2 + vacuum_energy});
-
+        
+        //st.set_energy(sum_energy + vacuum_energy);
         double dt = find_best_dt({M_PI/0.4, M_PI});
 
         auto basis = State_Graph<JC_State>(st, H_op, {A_dec}).get_basis();
@@ -380,6 +391,9 @@ int main(void) {
         make_probs_files(H, probs, time_vec, H.get_basis(), "res/2 альтернативы. Вероятности. Равные соотношения энергий");
     }
 
+    //!!!!!!!!!!!!
+    return 0;
+
     {
         JC_State st(1, "|0;1>");
 
@@ -387,12 +401,14 @@ int main(void) {
         double dt = M_PI/0.2/DT_DECREASE;
 
         st.set_g(0, 1, g);
-        STEPS_COUNT = 100;
-        st.set_energy({1, 1});
+        st.set_f({1});
+        //STEPS_COUNT = 1000;
 
-        auto basis = State_Graph<JC_State>(st, H_op).get_basis();
+        //st.set_energy(sum_energy + vacuum_energy);
 
-        H_by_Operator<JC_State> H(st, H_op);
+        auto basis = State_Graph<JC_State>(st, H_op, {A_dec}).get_basis();
+
+        H_by_Operator<JC_State> H(st, H_op, {std::make_pair(1, A_dec)});
 
         show_basis(H.get_basis());
 
@@ -413,8 +429,8 @@ int main(void) {
         
         for (size_t step = 1; step <= STEPS_COUNT; step++) {
             state = schrodinger_step(state, H, dt, basis);
+            state = A_dec.run(state);
             state.normalize();
-
 
             for (size_t i = 0; i < basis_size; i++) {
                 phases[i][step] = std::arg(state[i]);
@@ -424,9 +440,9 @@ int main(void) {
 
         auto time_vec = linspace(0, STEPS_COUNT, STEPS_COUNT + 1);
 
-        make_probs_files(H, probs, time_vec, H.get_basis(), "res/Осцилляции Джейнса-Каммингса. Вероятности. g=" + to_string_double_with_precision(g, 2, 4));
+        make_probs_files(H, probs, time_vec, H.get_basis(), "res/1 альтернатива. Вероятности. g=" + to_string_double_with_precision(g, 2, 4));
 
-        make_probs_files(H, phases, time_vec, H.get_basis(), "res/Осцилляции Джейнса-Каммингса. Фазы. g=" + to_string_double_with_precision(g, 2, 4));
+        make_probs_files(H, phases, time_vec, H.get_basis(), "res/1 альтернатива. Фазы. g=" + to_string_double_with_precision(g, 2, 4));
     }
 
     return 0;
