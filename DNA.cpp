@@ -1,4 +1,4 @@
-#include "QComputations_SINGLE.hpp"
+#include "emulation_state.hpp"
 
 namespace QComputations {
 

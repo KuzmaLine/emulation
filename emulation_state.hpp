@@ -62,7 +62,7 @@ class EmulationState : public Basis_State {
         EmulationState(size_t states_count): Basis_State(QUDITS_COUNT), g_map_(states_count), alpha_map_(states_count) {
             this->set_max_val(1000, 0);
         }
-        EmulationState(size_t g_count, const std::string& state_str): Basis_State(state_str), g_map_(g_count + 1) {
+        EmulationState(size_t states_count, const std::string& state_str): Basis_State(state_str), g_map_(states_count) {
             this->set_max_val(1000, 0);
         }
 
@@ -71,7 +71,8 @@ class EmulationState : public Basis_State {
             EmulationState res(*this);
             int target = g_map_[this->get_qudit(0)][i].first;
             res.set_qudit(target, 0);
-            res.ph_ = (ph_ + 1) % 2;
+            //res.ph_ = (ph_ + 1) % 2;
+            res.ph_ = 0;
             res.set_qudit(ph_, 1);
             res.group_ = target;
 
@@ -79,14 +80,18 @@ class EmulationState : public Basis_State {
         }
 
         // Перевести текущее состояние в терминальное (если возможно)
-        EmulationState terminal_step() const {
+        EmulationState alpha_step(int i) const {
             EmulationState res(*this);
 
-            int i = -1;
-            while(f_[++i] != this->get_qudit(0)) {}
-
-            res.set_qudit(g_map_.size() + i, 0);
-            res.ph_ = 0;
+            int target = alpha_map_[this->get_qudit(0)][i].first;
+            res.set_qudit(target, 0);
+            //res.ph_ = (ph_ + 1) % 2;
+            res.ph_ = 1;
+            res.set_qudit(0, 1);
+            
+            if (!res.is_terminal()) {
+                res.group_ = target;
+            }
 
             return res;
         }
@@ -109,10 +114,11 @@ class EmulationState : public Basis_State {
 
         // Является ли состояние терминальным
         bool is_terminal() const {
-            return (this->get_qudit(0) >= g_map_.size());
+            return std::find(f_.begin(), f_.end(), this->get_qudit(0));
+            //return (this->get_qudit(0) >= g_map_.size());
         }
 
-        //void set_energy(double energy) { state_energy_ = energy; }
+        void set_energy(double energy) { state_energy_ = std::vector<double>(g_map_.size(), energy); }
         void set_energy(const std::vector<double>& energy) {state_energy_ = energy;}
         double get_energy() const { return state_energy_[this->get_qudit(0)]; }
         //double get_energy() const { return state_energy_; }
@@ -142,11 +148,25 @@ class EmulationState : public Basis_State {
             g_map_[j].emplace_back(std::make_pair(i, g));
         }
 
+        void set_alpha(int i, int j, double alpha) {
+            for (auto& p: g_map_[i]) {
+                if (p.first == j) {
+                    p.second = alpha;
+
+                    return;
+                }
+            }
+
+            alpha_map_[i].emplace_back(std::make_pair(j, alpha));
+        }
+
         // Число возможных переходов
         size_t get_neighbours_count() const { return g_map_[this->get_qudit(0)].size(); }
         size_t get_alpha_count() const { return alpha_map_[this->get_qudit(0)].size(); }
         // Получить g_i
         COMPLEX get_g(int i) const { return g_map_[this->get_qudit(0)][i].second; }
+        double get_alpha(int i) const { return alpha_map_[this->get_qudit(0)][i].second; }
+        int get_alpha_target(int i) const { return alpha_map[this->get_qudit(0)][i].first; }
 
         // Строковое представление состояния
         std::string to_string() const override {
@@ -169,12 +189,8 @@ class EmulationState : public Basis_State {
 
         // Перегрузка сортировки
         bool operator<(const Basis_State& other) const override {
-            return this->to_string() < other.to_string();
-        }
-
-        void set_gamma(const std::vector<double>& gamma) {gamma_ = gamma;}
-        double gamma() const {
-            return gamma_[this->get_qudit(0) - g_map_.size()];
+            //return this->to_string() < other.to_string();
+            return this->get_qudit(0) < other.get_qudit(0);
         }
     private:
         std::vector<std::vector<std::pair<int, COMPLEX>>> g_map_;
@@ -189,7 +205,7 @@ class EmulationState : public Basis_State {
 State<EmulationState> exc_relax_matter(const EmulationState& st) {
     State<EmulationState> res;
     for (size_t i = 0; i < st.get_neighbours_count(); i++) {
-        res += State<EmulationState>(st.JC_Step(i)) * st.get_g(i);
+        res += State<EmulationState>(st.emulation_step(i)) * st.get_g(i);
     }
 
     res += State<EmulationState>(st) * st.get_energy();
@@ -199,138 +215,31 @@ State<EmulationState> exc_relax_matter(const EmulationState& st) {
 
 // Переход в терминальное состояние
 State<EmulationState> term_dec(const EmulationState& st) {
-    if(st.is_f()) {
-        auto f = st.Terminal_Step();
-        State<EmulationState> res(f, f.gamma());
-        res.insert(st, 1 - f.gamma());
-
-        return res;
+    State<EmulationState> res(st, 1);
+    for (size_t i = 0; i < st.get_alpha_count(); i++) {
+        res += State<EmulationState>(st.alpha_step(i)) * st.get_alpha(i);
+        res[st] -= set.get_alpha(i);
     }
 
-    return State<EmulationState>(st);
+    return res;
 }
 
-/*
-State<EmulationState> term_H(const EmulationState& st) {
-    if(st.is_f()) {
-        auto f = st.Terminal_Step();
-        State<EmulationState> res(f, 1.25);
-        res.insert(st, sum_energy + vacuum_energy);
-
-        return res;
-    }
-
-    return State<EmulationState>(st, sum_energy + vacuum_energy);
-}
-*/
+void simple_term_alpha(State<EmulationState>& ) {
 
 }
 
-int main(void) {
-    using namespace QComputations;
-    using OpType = Operator<EmulationState>;  
+void simple_term(State<EmulationState>& state) {
+    int index = 0;
+    for (auto& st: state) {
+        for (int i = 0; i < st.get_alpha_count(); i++) {
+            int target = st.get_alpha_target(i);
+            int source_ampl = state[index];
+            int target_ampl = state[target];
+            double alpha = st.get_alpha(i);
 
+            
 
-    auto H_op = OpType(exc_relax_matter);
-    OpType A_dec(term_dec);
-
-    std::vector<double> g_vec = {0.05, 0.1, 0.2, 0.4, 0.8, 1};
-
-    for (auto g: g_vec) {
-        EmulationState st(2, "|0;1>");
-        st.set_g(0, 1, 0.2);
-        st.set_g(0, 2, g);
-        st.set_f({1, 2});
-
-        st.set_energy({2*sum_energy + vacuum_energy,  // |0_0, 1>
-                sum_energy + vacuum_energy,           // |1_1, 0>
-                3*sum_energy + vacuum_energy,         // |1_2, 0>
-                sum_energy + vacuum_energy,           // |f_1, 0>
-                sum_energy + vacuum_energy});         // |f_2, 0>
-
-/*
-                 |0_0, 1>
-        |1_1,0> <->    <-> |1_2, 0>
-|f_1,0> <=                      => |f_2, 0>
-*/
-        std::vector<double> gamma = {1, 1};
-
-        st.set_gamma(gamma);
-
-        //st.set_energy(sum_energy + vacuum_energy);
-
-
-        double dt = find_best_dt({M_PI/0.4, M_PI/(g*2)}) / 10;
-
-        auto basis = State_Graph<EmulationState>(st, H_op, {A_dec}).get_basis();
-
-        H_by_Operator<EmulationState> H(st, H_op, {std::make_pair(1, A_dec)});
-
-        //H.show();
-        //auto H_dec = operator_to_matrix(OpType(term_H), basis);
-
-        //auto H_apply = E_Matrix<COMPLEX>(basis.size()) - H_dec * COMPLEX(0, 1/QConfig::instance().h() * dt);
-
-        if (g == 0.05) {
-            show_basis(H.get_basis());
-
-            //H_dec.show();
-            //H.show();
-
-            //std::cout << "1 - i/h*H_obs*dt\n";
-            //H_apply.show();
-            std::cout << std::endl << "Оператор для переноса амплитуды\n";
-            operator_to_matrix(A_dec, basis).show();
         }
-
-        auto basis_size = basis.size();
-
-        Matrix<double> phases(C_STYLE, basis_size, STEPS_COUNT + 1);
-
-        Matrix<double> probs(C_STYLE, basis_size, STEPS_COUNT + 1);
-        //Matrix<double> probs_H(C_STYLE, basis_size, STEPS_COUNT + 1);
-
-        State<EmulationState> state(basis);
-        state[1] = COMPLEX(1, 0);
-        //std::cout << state.to_string() << std::endl; 
-        //State<EmulationState> state_H(st, basis);
-
-        for (size_t i = 0; i < basis_size; i++) {
-            probs[i][0] = std::abs(state[i] * std::conj(state[i]));
-            //probs_H[i][0] = std::abs(state_H[i] * std::conj(state_H[i]));
-            phases[i][0] = std::arg(state[i]);
-        }
-        
-        for (size_t step = 1; step <= STEPS_COUNT; step++) {
-            state = schrodinger_step(state, H, dt, basis);
-            //state_H = schrodinger_step(state_H, H, dt, basis);
-
-            //state_H.set_vector(H_apply * state_H.get_vector()); 
-            //state_H.normalize();
-
-            if (step <= 5) show_vector(state.get_vector());
-
-            state = A_dec.run(state);
-            state.normalize();
-
-
-            for (size_t i = 0; i < basis_size; i++) {
-                phases[i][step] = std::arg(state[i]);
-                probs[i][step] = std::abs(state[i] * std::conj(state[i]));
-                //probs_H[i][step] = std::abs(state_H[i] * std::conj(state_H[i]));
-            }
-        }
-
-        auto time_vec = linspace(0, STEPS_COUNT, STEPS_COUNT + 1);
-
-        make_probs_files(H, probs, time_vec, H.get_basis(), "res/2 альтернативы. Новое начальное состояние. Разные энергии. Вероятности.  gamma" + 
-                         LOWER_NUMBERS[1] + "=" + std::to_string(gamma[0]) + " gamma" + LOWER_NUMBERS[2] + "=" + std::to_string(gamma[1]) + 
-                         ". g" + LOWER_NUMBERS[1] + "=0.2, g" + LOWER_NUMBERS[2] + "=" + to_string_double_with_precision(g, 2, 4) + 
-                         ". dt=" + std::to_string(dt));
-        //make_probs_files(H, probs_H, time_vec, H.get_basis(), "res/2 альтернативы. Вероятности. Метод через H. g" + LOWER_NUMBERS[1] + "=0.2, g" + LOWER_NUMBERS[2] + "=" + to_string_double_with_precision(g, 2, 4));
-
-        //make_probs_files(H, phases, time_vec, H.get_basis(), "res/2 альтернативы. Новый метод. Фазы. g" + LOWER_NUMBERS[1] + "=0.2, g" + LOWER_NUMBERS[2] + "=" + to_string_double_with_precision(g, 2, 4));
+        index++;
     }
-
-    return 0;
 }
