@@ -1,4 +1,6 @@
+#pragma once
 #include "QComputations_SINGLE.hpp"
+#include <algorithm>
 
 namespace QComputations {
 
@@ -8,8 +10,6 @@ namespace {
     //double sum_energy = 0;
     //double vacuum_energy = 0;
     constexpr int QUDITS_COUNT = 2;
-
-    int STEPS_COUNT = 5000;
 
     // Во сколько раз dt должен быть меньше минимального полупериода
     constexpr int DT_DECREASE = 10;
@@ -62,7 +62,7 @@ class EmulationState : public Basis_State {
         EmulationState(size_t states_count): Basis_State(QUDITS_COUNT), g_map_(states_count), alpha_map_(states_count) {
             this->set_max_val(1000, 0);
         }
-        EmulationState(size_t states_count, const std::string& state_str): Basis_State(state_str), g_map_(states_count) {
+        EmulationState(size_t states_count, const std::string& state_str): Basis_State(state_str), g_map_(states_count), alpha_map_(states_count) {
             this->set_max_val(1000, 0);
         }
 
@@ -72,8 +72,8 @@ class EmulationState : public Basis_State {
             int target = g_map_[this->get_qudit(0)][i].first;
             res.set_qudit(target, 0);
             //res.ph_ = (ph_ + 1) % 2;
-            res.ph_ = 0;
-            res.set_qudit(ph_, 1);
+            res.ph_ = 1;
+            res.set_qudit(0, 1);
             res.group_ = target;
 
             return res;
@@ -85,7 +85,7 @@ class EmulationState : public Basis_State {
 
             int target = alpha_map_[this->get_qudit(0)][i].first;
             res.set_qudit(target, 0);
-            //res.ph_ = (ph_ + 1) % 2;
+            res.ph_ = (ph_ + 1) % 2;
             res.ph_ = 1;
             res.set_qudit(0, 1);
             
@@ -114,7 +114,7 @@ class EmulationState : public Basis_State {
 
         // Является ли состояние терминальным
         bool is_terminal() const {
-            return std::find(f_.begin(), f_.end(), this->get_qudit(0));
+            return std::find(f_.begin(), f_.end(), this->get_qudit(0)) != f_.end();
             //return (this->get_qudit(0) >= g_map_.size());
         }
 
@@ -126,7 +126,7 @@ class EmulationState : public Basis_State {
         // Получить фотон
         int get_photon() const { return ph_; }
         // Получить значение matter
-        int get_matter() const { return this->get_qudit(1); }
+        int get_matter() const { return (this->get_qudit(0) == 0 ? 1 : this->get_qudit(1)); }
 
         // Установить g
         void set_g(int i, int j, COMPLEX g) {
@@ -166,7 +166,7 @@ class EmulationState : public Basis_State {
         // Получить g_i
         COMPLEX get_g(int i) const { return g_map_[this->get_qudit(0)][i].second; }
         double get_alpha(int i) const { return alpha_map_[this->get_qudit(0)][i].second; }
-        int get_alpha_target(int i) const { return alpha_map[this->get_qudit(0)][i].first; }
+        int get_alpha_target(int i) const { return alpha_map_[this->get_qudit(0)][i].first; }
 
         // Строковое представление состояния
         std::string to_string() const override {
@@ -189,8 +189,8 @@ class EmulationState : public Basis_State {
 
         // Перегрузка сортировки
         bool operator<(const Basis_State& other) const override {
-            //return this->to_string() < other.to_string();
-            return this->get_qudit(0) < other.get_qudit(0);
+            return this->to_string() < other.to_string();
+            //return this->get_qudit(0) < other.get_qudit(0);
         }
     private:
         std::vector<std::vector<std::pair<int, COMPLEX>>> g_map_;
@@ -218,28 +218,72 @@ State<EmulationState> term_dec(const EmulationState& st) {
     State<EmulationState> res(st, 1);
     for (size_t i = 0; i < st.get_alpha_count(); i++) {
         res += State<EmulationState>(st.alpha_step(i)) * st.get_alpha(i);
-        res[st] -= set.get_alpha(i);
+        res[st] -= st.get_alpha(i);
     }
 
     return res;
 }
 
-void simple_term_alpha(State<EmulationState>& ) {
+State<EmulationState> true_term(const EmulationState& st) {
+    State<EmulationState> res;
+    for (size_t i = 0; i < st.get_alpha_count(); i++) {
+        res += State<EmulationState>(st.alpha_step(i));
+    }
 
+    return res;
+}
+
+
+void simple_term_alpha(State<EmulationState>& state, int i, int j, double alpha) {
+    int index_source = 0;
+    int index_target = 0;
+    for (auto st: state.state_components()) {
+        if (st->get_qudit(0) == i) {
+            break;
+        }
+
+        index_source++;
+    }
+
+    for (auto st: state.state_components()) {
+        if (st->get_qudit(0) == j) {
+            break;
+        }
+
+        index_target++;
+    }
+
+    COMPLEX source_ampl = state[index_source];
+    COMPLEX target_ampl = state[index_target];
+
+
+    if (!is_zero(std::abs(source_ampl))) {
+        /*
+        COMPLEX new_source_ampl = std::sqrt(1 - alpha) * source_ampl;
+        COMPLEX new_target_ampl = std::sqrt(target_ampl * target_ampl + alpha * source_ampl * source_ampl);
+
+        state[index_source] = new_source_ampl;
+        state[index_target] = new_target_ampl;
+        */
+
+        COMPLEX new_source_ampl = (1 - alpha) * source_ampl;
+        COMPLEX new_target_ampl = target_ampl + alpha * source_ampl;
+
+        double coef = std::sqrt((std::abs(source_ampl) * std::abs(source_ampl) + std::abs(target_ampl) * std::abs(target_ampl)) / (std::abs(new_source_ampl) * std::abs(new_source_ampl) + std::abs(new_target_ampl) * std::abs(new_target_ampl)));
+
+        state[index_source] = coef * new_source_ampl;
+        state[index_target] = coef * new_target_ampl;
+    }
 }
 
 void simple_term(State<EmulationState>& state) {
     int index = 0;
-    for (auto& st: state) {
-        for (int i = 0; i < st.get_alpha_count(); i++) {
-            int target = st.get_alpha_target(i);
-            int source_ampl = state[index];
-            int target_ampl = state[target];
-            double alpha = st.get_alpha(i);
-
-            
-
+    for (auto& st: state.state_components()) {
+        for (int i = 0; i < st->get_alpha_count(); i++) {
+            simple_term_alpha(state, st->get_qudit(0), st->get_alpha_target(i), st->get_alpha(i));
         }
         index++;
     }
+}
+
 }
